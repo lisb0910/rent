@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>中古屋投資分析 Pro+</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body{font-family:sans-serif;background:#f3f4f6;margin:0;}
+.container{max-width:1200px;margin:auto;padding:15px;}
+.card{background:white;padding:15px;border-radius:12px;
+box-shadow:0 2px 10px rgba(0,0,0,0.08);margin-bottom:15px;}
+h2{border-left:4px solid #2563eb;padding-left:8px;}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;}
+input{padding:6px;width:100%;box-sizing:border-box;}
+button{background:#2563eb;color:white;border:none;
+padding:8px 12px;border-radius:6px;cursor:pointer;}
+button:hover{background:#1e40af;}
+.summary{font-weight:bold;font-size:18px;}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h1>🏠 中古屋投資分析 Pro+</h1>
+
+<div class="card">
+<h2>主要資訊</h2>
+<div class="grid">
+<input id="address" placeholder="地址">
+<input type="date" id="date">
+<input type="number" id="price" placeholder="開價(僅參考)">
+<input type="number" id="offer" placeholder="預備出價(自動8折)">
+<input type="number" id="agentLow" placeholder="中介底價">
+<input type="number" id="agentFee" placeholder="中介費(自動2%)" readonly>
+<input type="number" id="scrivener" value="20000" readonly>
+</div>
+</div>
+
+<div class="card">
+<h2>維修費</h2>
+<div class="grid">
+<input type="number" id="toiletUnit" value="150000">
+<input type="number" id="toiletCount" placeholder="廁所間數">
+<input type="number" id="paint" placeholder="油漆">
+<input type="number" id="kitchen" placeholder="廚具">
+<input type="number" id="window" placeholder="氣密窗">
+<input type="number" id="other1" placeholder="其他1">
+<input type="number" id="other2" placeholder="其他2">
+</div>
+</div>
+
+<div class="card">
+<h2>租金資訊</h2>
+<div class="grid">
+<input type="number" id="rent" placeholder="每月租金">
+<input type="number" id="manageFee" placeholder="每月管理費">
+</div>
+</div>
+
+<div class="card">
+<h2>投資分析</h2>
+<div class="grid">
+<div>維修總額<br><span class="summary" id="repairTotal">0</span></div>
+<div>總投入(底價+費用+維修)<br><span class="summary" id="totalCost">0</span></div>
+<div>年淨租金<br><span class="summary" id="annualIncome">0</span></div>
+<div>投報率 %<br><span class="summary" id="roi">0</span></div>
+</div>
+</div>
+
+<div class="card">
+<button onclick="saveLocal()">本機儲存</button>
+<button onclick="saveToCloud()">☁ 同步到Google</button>
+<button onclick="exportCSV()">匯出Excel</button>
+</div>
+
+<canvas id="chart"></canvas>
+
+</div>
+
+<script>
+
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzg8x2FE2IPvXAwLOsYgYHKzvmCXEEjXFO77GRNbf9xFNuCNO99bM5amnqnH9QELCB_/exec";
+
+function val(id){
+    return Number(document.getElementById(id).value)||0;
+}
+
+function calculate(){
+
+    // 預備出價 8折
+    document.getElementById("offer").value = 
+        Math.round(val("price")*0.8);
+
+    // ✅ 中介費 = 底價 × 2%
+    document.getElementById("agentFee").value =
+        Math.round(val("agentLow")*0.02);
+
+    let repair = val("toiletUnit")*val("toiletCount")
+        + val("paint")+val("kitchen")+val("window")
+        + val("other1")+val("other2");
+
+    document.getElementById("repairTotal").innerText = repair;
+
+    // ✅ 修改後總投入公式
+    let total = val("agentLow")
+        + val("agentFee")
+        + val("scrivener")
+        + repair;
+
+    document.getElementById("totalCost").innerText = total;
+
+    let annual = (val("rent")-val("manageFee"))*12;
+    document.getElementById("annualIncome").innerText = annual;
+
+    let roi = total ? (annual/total*100).toFixed(2):0;
+    document.getElementById("roi").innerText = roi;
+}
+
+document.querySelectorAll("input").forEach(i=>{
+    i.addEventListener("input",calculate);
+});
+
+function getData(){
+    return {
+        address:address.value,
+        date:date.value,
+        price:val("price"),
+        total:document.getElementById("totalCost").innerText,
+        annual:document.getElementById("annualIncome").innerText,
+        roi:document.getElementById("roi").innerText
+    }
+}
+
+function saveLocal(){
+    let records = JSON.parse(localStorage.getItem("houses")||"[]");
+    records.push(getData());
+    localStorage.setItem("houses",JSON.stringify(records));
+    alert("✅ 已本機儲存");
+    updateChart();
+}
+
+function saveToCloud(){
+
+    fetch(SCRIPT_URL,{
+        method:"POST",
+        mode:"no-cors",
+        headers:{
+            "Content-Type":"application/json"
+        },
+        body:JSON.stringify(getData())
+    })
+    .then(()=>alert("✅ 已送出（請查看Google Sheet）"))
+    .catch(()=>alert("❌ 同步失敗"));
+}
+
+function exportCSV(){
+
+    let records = JSON.parse(localStorage.getItem("houses")||"[]");
+
+    // ✅ 把目前畫面資料也加入
+    if(address.value){
+        records.push(getData());
+    }
+
+    let csv = '\uFEFF地址,日期,開價,總投入,年淨租金,投報率\n';
+
+    records.forEach(r=>{
+        csv += `${r.address},${r.date},${r.price},${r.total},${r.annual},${r.roi}\n`;
+    });
+
+    let blob = new Blob([csv],{type:"text/csv;charset=utf-8;"});
+    let a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "中古屋投資分析.csv";
+    a.click();
+}
+
+let chart;
+
+function updateChart(){
+    let records = JSON.parse(localStorage.getItem("houses")||"[]");
+    let labels=records.map(r=>r.date);
+    let data=records.map(r=>r.roi);
+
+    if(chart) chart.destroy();
+
+    chart=new Chart(document.getElementById("chart"),{
+        type:"bar",
+        data:{
+            labels:labels,
+            datasets:[{
+                label:"投報率%",
+                data:data,
+                backgroundColor:"#2563eb"
+            }]
+        }
+    });
+}
+
+updateChart();
+
+</script>
+</body>
+</html>
